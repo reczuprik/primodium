@@ -95,7 +95,8 @@ class EnhancedOrrery:
     def __init__(self, run_number, events_by_tick, terrain_grid):
         self.run_number = run_number
         self.events_by_tick = events_by_tick
-        self.terrain_grid = terrain_grid
+        self.terrain_grid = terrain_grid # And store it here
+
         self.max_tick = max(events_by_tick.keys()) if events_by_tick else 0
         self.current_tick = 0
         self.entity_states = {}
@@ -103,7 +104,7 @@ class EnhancedOrrery:
         
         # Setup the enhanced UI
         self._setup_ui()
-        self._setup_terrain_visualization()
+        self._setup_terrain_visualization() # This line will now work correctly
         self._setup_controls()
         self._setup_stats_panel()
         
@@ -528,6 +529,10 @@ def main(run_number):
         return
     
     terrain = load_terrain(run_number)
+    
+    if terrain is None:
+        print("Failed to load terrain data. Exiting.")
+        return
     events = process_events(chronicle)
     
     print(f"Loaded {len(chronicle)} events across {len(events)} ticks")

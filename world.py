@@ -4,7 +4,7 @@
 import numpy as np
 import numba
 from numba.typed import List
-
+import os
 import config as cfg
 from terrain import generate_terrain, get_terrain_movement_cost, get_terrain_solar_efficiency
 
@@ -325,10 +325,15 @@ def run_universe(
 # ==============================================================================
 class World:
     """Prepares initial conditions and launches the Numba simulation engine - FIXED VERSION with terrain."""
-    def __init__(self):
+    def __init__(self, seed=None):
         self.width, self.height = cfg.WORLD_WIDTH, cfg.WORLD_HEIGHT
         self.energy_grid = np.zeros((self.width, self.height), dtype=np.float32)
-        self.terrain_grid = generate_terrain(self.width, self.height)  # NEW: Generate terrain
+        
+        # Generate terrain with optional seed for reproducibility
+        if seed is not None:
+            np.random.seed(seed)
+        self.terrain_grid = generate_terrain(self.width, self.height)
+        
         self.entity_data = np.zeros((cfg.MAX_POPULATION, 9), dtype=np.float32)
         self.entities_genome = np.zeros((cfg.MAX_POPULATION, 15), dtype=np.float32)
         self.next_available_uid = 0
@@ -421,9 +426,12 @@ class World:
             percentage = (count / (self.width * self.height)) * 100
             print(f"  {terrain_names[terrain_type]}: {count} cells ({percentage:.1f}%)")
 
-    def run(self) -> np.ndarray:
+    def run(self, run_number=1) -> np.ndarray:
         """Launches the high-performance Numba simulation engine with terrain support."""
         print("--- Fixed Numba Core with Terrain Engaged: Forging universe from initial conditions... ---")
+
+        self.save_terrain(run_number)
+
         final_chronicle = run_universe(
             self.entity_data, self.entities_genome, self.energy_grid, self.terrain_grid,
             self.next_available_uid,
@@ -439,3 +447,10 @@ class World:
     def get_terrain_grid(self):
         """Return the terrain grid for visualization."""
         return self.terrain_grid
+    
+    def save_terrain(self, run_number):
+        """Save the terrain grid for visualization access."""
+        os.makedirs("chronicles", exist_ok=True)
+        terrain_file = os.path.join("chronicles", f"run_{run_number}_terrain.npy")
+        np.save(terrain_file, self.terrain_grid)
+        print(f"Terrain saved to {terrain_file}")
