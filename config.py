@@ -1,4 +1,4 @@
-# --- THE FINAL, CANONICAL CONSTANTS ---
+# --- THE FIXED, REBALANCED CONSTANTS ---
 
 # World & Performance Parameters
 WORLD_WIDTH = 256; WORLD_HEIGHT = 256
@@ -10,15 +10,20 @@ INITIAL_ENERGY_DENSITY = 0.30
 SOLAR_FLUX_INTERVAL = 10
 SOLAR_FLUX_AMOUNT = 0.01
 
-# --- NEW: BASE PHYSICS COSTS ---
+# --- FIXED: REBALANCED PHYSICS COSTS ---
 # These are the baseline costs for a creature with a gene value of 1.0
 C_E_BASE = 0.8       # Base Cost of Existence
-C_S_BASE = 0.25      # Base Cost of Sensation
-C_M_BASE = 4.0       # Base Cost of Movement
-C_R = 120.0          # Reproduction cost is absolute
-ENERGY_PER_QUANTUM = 300.0
+C_S_BASE = 0.15      # Base Cost of Sensation (REDUCED - was 0.25)
+C_M_BASE = 2.0       # Base Cost of Movement (REDUCED - was 4.0)
+C_R = 150.0          # Reproduction cost (INCREASED - was 120.0)
+ENERGY_PER_QUANTUM = 80.0  # Energy per food (REDUCED - was 300.0)
 PREDATION_ENERGY_YIELD = 0.75
 REPRODUCTION_ENERGY_INHERITANCE = 0.5 # Child inherits 50% of the parent's post-cost energy
+
+# --- REPRODUCTION EXPLOSION FIXES ---
+REPRODUCTION_COOLDOWN = 100         # Minimum ticks between reproductions
+MIN_REPRODUCTION_AGE = 50          # Minimum age to reproduce
+INITIAL_ENERGY_MULTIPLIER = 0.8    # Start with 80% of stress threshold
 
 # --- EPOCH 3: THE AGE OF THE BODY ---
 C_MEMORY = 0.2
@@ -27,8 +32,8 @@ MEMORY_DECAY = 0.98
 # Genetic Bounds (15 Genes Total)
 GENE_WEIGHT_MIN = 0.5; GENE_WEIGHT_MAX = 1.5
 GENE_STRESS_THRESHOLD_MIN = 20.0; GENE_STRESS_THRESHOLD_MAX = 110.0
-GENE_SURPLUS_THRESHOLD_MIN = 130.0; GENE_SURPLUS_THRESHOLD_MAX = 250.0
-GENE_MUTATION_RATE_MIN = 0.01; GENE_MUTATION_RATE_MAX = 0.10
+GENE_SURPLUS_THRESHOLD_MIN = 150.0; GENE_SURPLUS_THRESHOLD_MAX = 300.0  # INCREASED
+GENE_MUTATION_RATE_MIN = 0.01; GENE_MUTATION_RATE_MAX = 0.05  # REDUCED mutation rate
 GENE_SOCIAL_WEIGHT_MIN = -1.0; GENE_SOCIAL_WEIGHT_MAX = 1.0
 GENE_MAX_AGE_MIN = 200.0; GENE_MAX_AGE_MAX = 800.0
 GENE_MEMORY_WEIGHT_MIN = -1.0; GENE_MEMORY_WEIGHT_MAX = 1.0
@@ -50,12 +55,10 @@ ACTION_ENERGY_SPAWN = 6.0; ACTION_SOLAR_INFUSION = 7.0; ACTION_ENERGY_CONSUMED =
 # Visualization
 PREDATION_THRESHOLD = 0.1; ANXIETY_THRESHOLD = 70.0
 
-# --- ADD THIS LIST ---
-# The canonical list of gene names, defining the genome's structure.
+# --- THE CANONICAL GENOME STRUCTURE ---
 GENOME_KEYS = [
     'w_north', 'w_east', 'w_south', 'w_west',
     'energy_stress_threshold', 'energy_surplus_threshold', 'mutation_rate',
     'w_peace', 'w_predate','max_age', 'kin_tag', 'w_flee', 'sense_range',
     'body_strength', 'body_speed'
 ]
-
