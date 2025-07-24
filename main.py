@@ -4,8 +4,8 @@ import csv
 import argparse
 import os
 import numpy as np
-from world import World
-import config as cfg
+from primordium_engine.world import World
+import primordium_engine.config as cfg
 
 def save_chronicle(chronicle_data: np.ndarray, run_number: int):
     """Saves the final chronicle data to a CSV file."""
