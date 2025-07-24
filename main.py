@@ -32,17 +32,12 @@ def main(num_evolutions: int):
     # --- The restored batch-run loop ---
     for run_number in range(1, num_evolutions + 1):
         print(f"\n--- Starting Evolution #{run_number}/{num_evolutions} ---")
+        
         # 1. Initialize a completely new world for each evolution.
-        world = World(seed=run_number) # Use the run_number as a seed for reproducible terrain!
+        world = World()
 
-        # 2. Immediately save the generated terrain map so the playback tool can load it.
-        terrain_filename = os.path.join("chronicles", f"run_{run_number}_terrain.npy")
-        np.save(terrain_filename, world.terrain_grid)
-        print(f"Terrain map for run #{run_number} saved to {terrain_filename}")
-        # -----------------------
-
-        # 3. Run the ENTIRE simulation with one function call.
-        final_chronicle = world.run()
+        # 2. Run the ENTIRE simulation with one function call, passing run_number for terrain saving.
+        final_chronicle = world.run(run_number)
 
         # 3. Save the results.
         if len(final_chronicle) > 0:

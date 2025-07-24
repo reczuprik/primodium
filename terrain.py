@@ -1,4 +1,4 @@
-# --- terrain.py - NEW FILE: Procedural Terrain Generation ---
+# --- terrain.py - FIXED VERSION: Better Procedural Terrain Generation ---
 
 import numpy as np
 import numba
@@ -26,7 +26,7 @@ TERRAIN_SOLAR_EFFICIENCY = {
 }
 
 @numba.njit
-def generate_noise(width, height, scale=0.1, octaves=4):
+def generate_noise(width, height, scale=0.1, octaves=4, seed_offset=0):
     """Generate Perlin-like noise for terrain generation."""
     noise = np.zeros((width, height), dtype=np.float32)
     
@@ -37,8 +37,8 @@ def generate_noise(width, height, scale=0.1, octaves=4):
         for x in range(width):
             for y in range(height):
                 # Simple noise function - not true Perlin but good enough
-                sample_x = x * frequency
-                sample_y = y * frequency
+                sample_x = (x + seed_offset) * frequency
+                sample_y = (y + seed_offset) * frequency
                 
                 # Create pseudo-random values based on position
                 noise_val = np.sin(sample_x * 12.9898 + sample_y * 78.233) * 43758.5453
@@ -46,18 +46,24 @@ def generate_noise(width, height, scale=0.1, octaves=4):
                 
                 noise[x, y] += noise_val * amplitude
     
+    # Normalize to 0-1 range
+    min_val = np.min(noise)
+    max_val = np.max(noise)
+    if max_val > min_val:
+        noise = (noise - min_val) / (max_val - min_val)
+    
     return noise
 
 @numba.njit  
 def generate_terrain(width, height, seed=42):
-    """Generate procedural terrain with distinct biomes."""
+    """Generate procedural terrain with BALANCED biome distribution."""
     np.random.seed(seed)
     
-    # Generate base elevation map
-    elevation = generate_noise(width, height, scale=0.02, octaves=6)
+    # Generate base elevation map with better parameters
+    elevation = generate_noise(width, height, scale=0.015, octaves=5, seed_offset=seed)
     
     # Generate moisture map
-    moisture = generate_noise(width, height, scale=0.015, octaves=4)
+    moisture = generate_noise(width, height, scale=0.012, octaves=4, seed_offset=seed+100)
     
     # Generate temperature map (latitude-based with noise)
     temperature = np.zeros((width, height), dtype=np.float32)
@@ -65,10 +71,10 @@ def generate_terrain(width, height, seed=42):
         for y in range(height):
             # Base temperature decreases toward edges (poles)
             lat_temp = 1.0 - abs(y - height/2) / (height/2)
-            temp_noise = generate_noise(1, 1, scale=0.01, octaves=2)[0, 0]
-            temperature[x, y] = lat_temp + temp_noise * 0.3
+            temp_noise = np.sin((x + seed) * 0.01) * np.cos((y + seed) * 0.01) * 0.3
+            temperature[x, y] = max(0.0, min(1.0, lat_temp + temp_noise))
     
-    # Classify terrain based on elevation, moisture, and temperature
+    # FIXED: Much more balanced terrain classification
     terrain = np.zeros((width, height), dtype=np.int32)
     
     for x in range(width):
@@ -77,16 +83,20 @@ def generate_terrain(width, height, seed=42):
             moist = moisture[x, y]
             temp = temperature[x, y]
             
-            # Water: low elevation
-            if elev < 0.3:
+            # REBALANCED thresholds for better distribution
+            # Water: very low elevation (5-10%)
+            if elev < 0.15:
                 terrain[x, y] = TERRAIN_WATER
-            # Mountains: high elevation
-            elif elev > 0.7:
+            # Mountains: very high elevation (10-15%)
+            elif elev > 0.85:
                 terrain[x, y] = TERRAIN_MOUNTAINS
-            # Forest: moderate elevation, high moisture
-            elif moist > 0.5 and temp > 0.3:
+            # Forest: moderate elevation + high moisture (20-30%)
+            elif elev > 0.3 and moist > 0.6 and temp > 0.2:
                 terrain[x, y] = TERRAIN_FOREST
-            # Plains: everything else
+            # Additional forest areas for balance
+            elif elev > 0.4 and elev < 0.7 and moist > 0.45:
+                terrain[x, y] = TERRAIN_FOREST
+            # Plains: everything else (50-65%)
             else:
                 terrain[x, y] = TERRAIN_PLAINS
     

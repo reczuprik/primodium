@@ -10,13 +10,13 @@ import config as cfg
 import os
 import csv
 from matplotlib.lines import Line2D
-from terrain import get_terrain_color, TERRAIN_WATER, TERRAIN_PLAINS, TERRAIN_FOREST, TERRAIN_MOUNTAINS
+from terrain import get_terrain_color, TERRAIN_WATER, TERRAIN_PLAINS, TERRAIN_FOREST, TERRAIN_MOUNTAINS, generate_terrain
 
 # Enhanced visualization constants
-ENTITY_SIZE_BASE = 8
-ENERGY_ALPHA = 0.7
-TERRAIN_ALPHA = 0.6
-ANIMATION_SPEED = 50  # milliseconds between frames
+ENTITY_SIZE_BASE = 12
+ENERGY_ALPHA = 0.6
+TERRAIN_ALPHA = 0.5
+ANIMATION_SPEED = 50
 
 def load_chronicle(run_number: int):
     """Loads and parses the chronicle file for a given run."""
@@ -35,25 +35,39 @@ def load_chronicle(run_number: int):
         return None
 
 def load_terrain(run_number: int):
-    """Load or generate terrain for visualization."""
+    """Load terrain for visualization with improved fallback handling."""
+    terrain_file = os.path.join("chronicles", f"run_{run_number}_terrain.npy")
+    
     try:
-        # Try to load saved terrain first
-        terrain_file = os.path.join("chronicles", f"run_{run_number}_terrain.npy")
         if os.path.exists(terrain_file):
-            return np.load(terrain_file)
-        else:
-            # Generate terrain if not saved
-            from terrain import generate_terrain
-            terrain = generate_terrain(cfg.WORLD_WIDTH, cfg.WORLD_HEIGHT)
-            # Save for future use
-            os.makedirs("chronicles", exist_ok=True)
-            np.save(terrain_file, terrain)
+            print(f"Loading terrain from {terrain_file}")
+            terrain = np.load(terrain_file)
+            
+            # Verify terrain distribution
+            unique, counts = np.unique(terrain, return_counts=True)
+            terrain_names = ["Water", "Plains", "Forest", "Mountains"]
+            print("Terrain distribution:")
+            for terrain_type, count in zip(unique, counts):
+                percentage = (count / terrain.size) * 100
+                print(f"  {terrain_names[terrain_type]}: {count} cells ({percentage:.1f}%)")
+            
             return terrain
     except Exception as e:
-        print(f"Warning: Could not load terrain: {e}")
-        # Fallback: generate new terrain
-        from terrain import generate_terrain
-        return generate_terrain(cfg.WORLD_WIDTH, cfg.WORLD_HEIGHT)
+        print(f"Warning: Could not load terrain file: {e}")
+    
+    # Fallback: generate new terrain
+    print("Generating new terrain for visualization...")
+    terrain = generate_terrain(cfg.WORLD_WIDTH, cfg.WORLD_HEIGHT, seed=run_number * 42)
+    
+    # Try to save the generated terrain for future use
+    try:
+        os.makedirs("chronicles", exist_ok=True)
+        np.save(terrain_file, terrain)
+        print(f"Generated terrain saved to {terrain_file}")
+    except Exception as e:
+        print(f"Warning: Could not save generated terrain: {e}")
+    
+    return terrain
 
 def process_events(chronicle_data: list) -> dict:
     """Groups all events from the chronicle by their tick number."""
@@ -74,67 +88,104 @@ def get_species_info(genome: np.ndarray):
     is_predator = w_predate > cfg.PREDATION_THRESHOLD
     is_anxious = stress > cfg.ANXIETY_THRESHOLD
     
-    # Size based on body mass
-    size_multiplier = (strength + speed) / 2.0
+    # Size based on body mass (more visible differences)
+    size_multiplier = 0.8 + (strength + speed) / 3.0
     
     # Color and name classification
     if is_predator:
         if is_anxious:
-            return "Aggressive Hunter", "#FF4444", size_multiplier
+            return "Aggressive Hunter", "#FF2222", size_multiplier
         else:
-            return "Calm Predator", "#FF8800", size_multiplier
+            return "Calm Predator", "#FF6600", size_multiplier
     else:
         if is_anxious:
-            return "Anxious Forager", "#FFFF44", size_multiplier
+            return "Anxious Forager", "#FFDD00", size_multiplier
         else:
-            return "Peaceful Grazer", "#44FFFF", size_multiplier
+            return "Peaceful Grazer", "#00DDDD", size_multiplier
+
+class EvolutionAnalyzer:
+    """Analyzer to track species evolution over time."""
+    
+    def __init__(self):
+        self.species_history = {
+            "Aggressive Hunter": [],
+            "Calm Predator": [],
+            "Anxious Forager": [],
+            "Peaceful Grazer": []
+        }
+        self.tick_history = []
+        self.population_history = []
+        self.energy_history = []
+    
+    def record_tick(self, tick, entity_states, energy_grid):
+        """Record data for this tick."""
+        self.tick_history.append(tick)
+        self.population_history.append(len(entity_states))
+        self.energy_history.append(np.sum(energy_grid))
+        
+        # Count species
+        species_counts = {species: 0 for species in self.species_history.keys()}
+        for state in entity_states.values():
+            species = state['species']
+            if species in species_counts:
+                species_counts[species] += 1
+        
+        # Record counts
+        for species, count in species_counts.items():
+            self.species_history[species].append(count)
 
 class EnhancedOrrery:
-    """Enhanced interactive playback system with beautiful terrain and energy visualization."""
+    """Enhanced interactive playback system with evolutionary analysis."""
     
     def __init__(self, run_number, events_by_tick, terrain_grid):
         self.run_number = run_number
         self.events_by_tick = events_by_tick
-        self.terrain_grid = terrain_grid # And store it here
-
+        self.terrain_grid = terrain_grid
         self.max_tick = max(events_by_tick.keys()) if events_by_tick else 0
         self.current_tick = 0
         self.entity_states = {}
         self.is_playing = False
+        self.analyzer = EvolutionAnalyzer()
         
         # Setup the enhanced UI
         self._setup_ui()
-        self._setup_terrain_visualization() # This line will now work correctly
+        self._setup_terrain_visualization()
         self._setup_controls()
         self._setup_stats_panel()
+        self._setup_evolution_charts()
         
         # Initialize visualization
         self.update(1)
     
     def _setup_ui(self):
-        """Setup the main UI layout."""
-        self.fig = plt.figure(figsize=(20, 12))
+        """Setup the main UI layout with better spacing."""
+        self.fig = plt.figure(figsize=(24, 14))
         self.fig.patch.set_facecolor('#0a0a0a')
         
-        # Create sophisticated grid layout
-        gs = self.fig.add_gridspec(12, 8, hspace=0.3, wspace=0.2)
+        # Create sophisticated grid layout - FIXED overlapping
+        gs = self.fig.add_gridspec(14, 12, hspace=0.4, wspace=0.3)
         
-        # Main simulation view (larger)
-        self.ax_main = self.fig.add_subplot(gs[0:10, 0:6])
+        # Main simulation view (larger, left side)
+        self.ax_main = self.fig.add_subplot(gs[0:10, 0:7])
         
-        # Stats panel (right side)
-        self.ax_stats = self.fig.add_subplot(gs[0:6, 6:8])
+        # Stats panel (top right)
+        self.ax_stats = self.fig.add_subplot(gs[0:5, 7:10])
         
-        # Species legend (right side, bottom)
-        self.ax_legend = self.fig.add_subplot(gs[6:8, 6:8])
+        # Species legend (middle right)
+        self.ax_legend = self.fig.add_subplot(gs[5:7, 7:10])
         
-        # Event log (bottom strip)
-        self.ax_events = self.fig.add_subplot(gs[8:10, 6:8])
+        # Event log (bottom right)
+        self.ax_events = self.fig.add_subplot(gs[7:10, 7:10])
         
-        # Controls (bottom)
-        self.ax_slider = self.fig.add_subplot(gs[10, 0:6])
+        # Evolution charts (right side, large)
+        self.ax_species_chart = self.fig.add_subplot(gs[0:7, 10:12])
+        self.ax_ecosystem_chart = self.fig.add_subplot(gs[7:10, 10:12])
+        
+        # Controls (bottom, spanning width)
+        self.ax_slider = self.fig.add_subplot(gs[10, 0:10])
         self.ax_play_btn = self.fig.add_subplot(gs[11, 0:1])
         self.ax_speed_btn = self.fig.add_subplot(gs[11, 1:2])
+        self.ax_reset_btn = self.fig.add_subplot(gs[11, 2:3])
         
     def _setup_terrain_visualization(self):
         """Setup beautiful terrain visualization."""
@@ -145,10 +196,10 @@ class EnhancedOrrery:
         self.ax_main.set_xticks([])
         self.ax_main.set_yticks([])
         self.ax_main.set_title(f'Project Primordium - Evolution #{self.run_number}', 
-                              color='white', fontsize=16, fontweight='bold')
+                              color='white', fontsize=18, fontweight='bold', pad=20)
         
-        # Create terrain colormap
-        terrain_colors = ['#1e40af', '#22c55e', '#166534', '#78716c']  # Water, Plains, Forest, Mountains
+        # Create terrain colormap with better colors
+        terrain_colors = ['#1e40af', '#22c55e', '#15803d', '#78716c']  # Water, Plains, Forest, Mountains
         terrain_cmap = ListedColormap(terrain_colors)
         terrain_norm = BoundaryNorm([0, 1, 2, 3, 4], terrain_cmap.N)
         
@@ -172,7 +223,7 @@ class EnhancedOrrery:
             vmax=8, 
             alpha=ENERGY_ALPHA, 
             zorder=2, 
-            interpolation='nearest', 
+            interpolation='bilinear', 
             origin='lower'
         )
         
@@ -184,14 +235,14 @@ class EnhancedOrrery:
             alpha=0.9, 
             zorder=3, 
             edgecolors='white', 
-            linewidths=0.5
+            linewidths=0.8
         )
         
-        # Add terrain legend
+        # Add terrain legend to main plot
         terrain_legend_elements = [
             plt.Rectangle((0, 0), 1, 1, facecolor='#1e40af', label='Water'),
             plt.Rectangle((0, 0), 1, 1, facecolor='#22c55e', label='Plains'),
-            plt.Rectangle((0, 0), 1, 1, facecolor='#166534', label='Forest'),
+            plt.Rectangle((0, 0), 1, 1, facecolor='#15803d', label='Forest'),
             plt.Rectangle((0, 0), 1, 1, facecolor='#78716c', label='Mountains')
         ]
         
@@ -202,11 +253,41 @@ class EnhancedOrrery:
             frameon=True,
             facecolor='black',
             edgecolor='gray',
-            fontsize=10
+            fontsize=11
         )
-        terrain_legend.get_frame().set_alpha(0.8)
+        terrain_legend.get_frame().set_alpha(0.9)
         for text in terrain_legend.get_texts():
             text.set_color('white')
+    
+    def _setup_evolution_charts(self):
+        """Setup evolutionary tracking charts."""
+        # Species evolution chart
+        self.ax_species_chart.set_facecolor('#0a0a0a')
+        self.ax_species_chart.set_title('Species Evolution Over Time', color='white', fontweight='bold')
+        self.ax_species_chart.set_xlabel('Tick', color='white')
+        self.ax_species_chart.set_ylabel('Population', color='white')
+        self.ax_species_chart.tick_params(colors='white')
+        
+        # Ecosystem health chart  
+        self.ax_ecosystem_chart.set_facecolor('#0a0a0a')
+        self.ax_ecosystem_chart.set_title('Ecosystem Health', color='white', fontweight='bold')
+        self.ax_ecosystem_chart.set_xlabel('Tick', color='white')
+        self.ax_ecosystem_chart.set_ylabel('Total Energy', color='white')
+        self.ax_ecosystem_chart.tick_params(colors='white')
+        
+        # Initialize empty plots
+        self.species_lines = {}
+        colors = ['#FF2222', '#FF6600', '#FFDD00', '#00DDDD']
+        for i, species in enumerate(self.analyzer.species_history.keys()):
+            line, = self.ax_species_chart.plot([], [], color=colors[i], label=species, linewidth=2)
+            self.species_lines[species] = line
+        
+        self.ax_species_chart.legend(loc='upper right', facecolor='#1a1a1a', edgecolor='gray')
+        for text in self.ax_species_chart.get_legend().get_texts():
+            text.set_color('white')
+        
+        # Ecosystem line
+        self.ecosystem_line, = self.ax_ecosystem_chart.plot([], [], color='#00FF00', linewidth=2)
     
     def _setup_controls(self):
         """Setup playback controls."""
@@ -229,11 +310,15 @@ class EnhancedOrrery:
         # Speed control
         self.btn_speed = Button(self.ax_speed_btn, '1x', color='#2196F3')
         self.btn_speed.on_clicked(self.cycle_speed)
-        self.speeds = [30, 60, 120, 200]  # milliseconds
-        self.current_speed_idx = 0
+        self.speeds = [20, 50, 100, 200]  # milliseconds
+        self.current_speed_idx = 1
+        
+        # Reset button
+        self.btn_reset = Button(self.ax_reset_btn, 'Reset', color='#FF5722')
+        self.btn_reset.on_clicked(self.reset_view)
         
         # Setup animation timer
-        self.animation_timer = self.fig.canvas.new_timer(interval=self.speeds[0])
+        self.animation_timer = self.fig.canvas.new_timer(interval=self.speeds[self.current_speed_idx])
         self.animation_timer.add_callback(self.play_step)
     
     def _setup_stats_panel(self):
@@ -242,12 +327,12 @@ class EnhancedOrrery:
         self.ax_stats.set_facecolor('#0a0a0a')
         self.ax_stats.set_xticks([])
         self.ax_stats.set_yticks([])
-        self.ax_stats.set_title('Ecosystem Statistics', color='white', fontweight='bold')
+        self.ax_stats.set_title('Ecosystem Statistics', color='white', fontweight='bold', fontsize=14)
         
         self.stats_text = self.ax_stats.text(
             0.05, 0.95, '', 
             color='white', 
-            fontsize=11, 
+            fontsize=10, 
             fontfamily='monospace',
             verticalalignment='top',
             transform=self.ax_stats.transAxes
@@ -257,13 +342,13 @@ class EnhancedOrrery:
         self.ax_legend.set_facecolor('#0a0a0a')
         self.ax_legend.set_xticks([])
         self.ax_legend.set_yticks([])
-        self.ax_legend.set_title('Species Types', color='white', fontweight='bold')
+        self.ax_legend.set_title('Species Types', color='white', fontweight='bold', fontsize=12)
         
         # Events panel
         self.ax_events.set_facecolor('#0a0a0a')
         self.ax_events.set_xticks([])
         self.ax_events.set_yticks([])
-        self.ax_events.set_title('Recent Events', color='white', fontweight='bold')
+        self.ax_events.set_title('Recent Events', color='white', fontweight='bold', fontsize=12)
         
         self.events_text = self.ax_events.text(
             0.05, 0.95, '', 
@@ -292,13 +377,19 @@ class EnhancedOrrery:
         
         self.current_speed_idx = (self.current_speed_idx + 1) % len(self.speeds)
         speed = self.speeds[self.current_speed_idx]
-        speed_labels = ['1x', '2x', '4x', '8x']
+        speed_labels = ['4x', '2x', '1x', '0.5x']
         
         self.btn_speed.label.set_text(speed_labels[self.current_speed_idx])
         self.animation_timer.interval = speed
         
         if self.is_playing:
             self.animation_timer.start()
+    
+    def reset_view(self, event):
+        """Reset view to beginning."""
+        self.slider.set_val(1)
+        if self.is_playing:
+            self.toggle_play(event)
     
     def play_step(self):
         """Advance one tick during playback."""
@@ -317,6 +408,8 @@ class EnhancedOrrery:
         if target_tick < self.current_tick:
             self.entity_states = {}
             self.energy_grid.fill(0)
+            # Reset analyzer
+            self.analyzer = EvolutionAnalyzer()
             start_tick = 1
         else:
             start_tick = self.current_tick + 1
@@ -343,11 +436,16 @@ class EnhancedOrrery:
             if tick in self.events_by_tick:
                 for event in self.events_by_tick[tick]:
                     self._process_event(event, recent_events)
+            
+            # Record data every 10 ticks for performance
+            if tick % 10 == 0:
+                self.analyzer.record_tick(tick, self.entity_states, self.energy_grid)
         
         self.current_tick = target_tick
         self._update_visualization()
         self._update_stats_panel()
-        self._update_events_panel(recent_events[-10:])  # Show last 10 events
+        self._update_events_panel(recent_events[-10:])
+        self._update_evolution_charts()
         self.fig.canvas.draw_idle()
     
     def _process_event(self, event, recent_events):
@@ -388,7 +486,7 @@ class EnhancedOrrery:
                 self.entity_states[eid]['energy'] = (parent_energy - cfg.C_R) * (1 - cfg.REPRODUCTION_ENERGY_INHERITANCE)
                 initial_energy = daughter_energy
             else:
-                initial_energy = genome[5] + cfg.ENERGY_PER_QUANTUM
+                initial_energy = genome[4] * cfg.INITIAL_ENERGY_MULTIPLIER + cfg.ENERGY_PER_QUANTUM
             
             self.entity_states[child_id] = {
                 'pos': [x2, y2],
@@ -431,14 +529,15 @@ class EnhancedOrrery:
             self.entity_scatter.set_sizes(sizes)
             self.entity_scatter.set_color(colors)
         
-        # Update energy display
-        self.energy_display.set_data(self.energy_grid.T)
-        self.energy_display.set_clim(0, max(1, np.max(self.energy_grid)))
+        # Update energy display with better scaling
+        if np.max(self.energy_grid) > 0:
+            self.energy_display.set_data(self.energy_grid.T)
+            self.energy_display.set_clim(0, max(2, np.max(self.energy_grid) * 0.8))
     
     def _update_stats_panel(self):
         """Update the statistics panel."""
         if not self.entity_states:
-            self.stats_text.set_text(f"TICK: {self.current_tick}/{self.max_tick}\n\nEXTINCTION EVENT")
+            self.stats_text.set_text(f"TICK: {self.current_tick}/{self.max_tick}\n\n⚠️ EXTINCTION EVENT")
             return
         
         # Calculate statistics
@@ -453,31 +552,44 @@ class EnhancedOrrery:
             species = state['species']
             species_counts[species] = species_counts.get(species, 0) + 1
         
-        # Build stats string
+        # Calculate predator percentage
+        predator_count = species_counts.get("Aggressive Hunter", 0) + species_counts.get("Calm Predator", 0)
+        predator_percentage = (predator_count / pop_count) * 100 if pop_count > 0 else 0
+        
+        # Build stats string with better formatting
         stats_lines = [
             f"TICK: {self.current_tick}/{self.max_tick}",
             "",
-            "[ECOSYSTEM]",
-            f"Population:         {pop_count}",
-            f"Environmental Energy: {int(np.sum(self.energy_grid))}",
+            "🌍 [ECOSYSTEM]",
+            f"Population:         {pop_count:,}",
+            f"Environmental Energy: {int(np.sum(self.energy_grid)):,}",
+            f"Predator %:         {predator_percentage:.1f}%",
             "",
-            "[SPECIES DISTRIBUTION]"
+            "🧬 [SPECIES COUNTS]"
         ]
         
+        species_icons = {
+            "Aggressive Hunter": "🔴",
+            "Calm Predator": "🟠", 
+            "Anxious Forager": "🟡",
+            "Peaceful Grazer": "🔵"
+        }
+        
         for species, count in sorted(species_counts.items()):
+            icon = species_icons.get(species, "⚪")
             percentage = (count / pop_count) * 100
-            stats_lines.append(f"{species}: {count} ({percentage:.1f}%)")
+            stats_lines.append(f"{icon} {species}: {count} ({percentage:.1f}%)")
         
         stats_lines.extend([
             "",
-            "[AVERAGES]",
+            "📊 [AVERAGES]",
             f"Age:                {np.mean(ages):.1f}",
             f"Energy:             {np.mean(energies):.1f}",
             f"Body Strength:      {np.mean(genomes[:, 13]):.2f}",
             f"Body Speed:         {np.mean(genomes[:, 14]):.2f}",
             f"Sense Range:        {np.mean(genomes[:, 12]):.2f}",
             "",
-            "[EXTREMES]",
+            "🏆 [EXTREMES]",
             f"Oldest:             {np.max(ages)}",
             f"Richest Energy:     {np.max(energies):.1f}",
             f"Strongest:          {np.max(genomes[:, 13]):.2f}",
@@ -495,14 +607,40 @@ class EnhancedOrrery:
         
         self.events_text.set_text(events_text)
     
+    def _update_evolution_charts(self):
+        """Update the evolutionary tracking charts."""
+        if len(self.analyzer.tick_history) < 2:
+            return
+        
+        ticks = np.array(self.analyzer.tick_history)
+        
+        # Update species evolution chart
+        for species, line in self.species_lines.items():
+            counts = np.array(self.analyzer.species_history[species])
+            line.set_data(ticks, counts)
+        
+        # Update chart limits
+        if len(ticks) > 0:
+            self.ax_species_chart.set_xlim(0, max(ticks))
+            max_pop = max([max(counts) if counts else 0 for counts in self.analyzer.species_history.values()])
+            self.ax_species_chart.set_ylim(0, max(max_pop * 1.1, 10))
+        
+        # Update ecosystem health chart
+        energies = np.array(self.analyzer.energy_history)
+        self.ecosystem_line.set_data(ticks, energies)
+        
+        if len(energies) > 0:
+            self.ax_ecosystem_chart.set_xlim(0, max(ticks))
+            self.ax_ecosystem_chart.set_ylim(0, max(energies) * 1.1)
+    
     def run(self):
         """Start the enhanced visualization."""
-        # Create species legend
+        # Create species legend with better formatting
         legend_elements = [
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='#FF4444', markersize=10, label='Aggressive Hunter'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='#FF8800', markersize=10, label='Calm Predator'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='#FFFF44', markersize=10, label='Anxious Forager'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='#44FFFF', markersize=10, label='Peaceful Grazer')
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='#FF2222', markersize=12, label='🔴 Aggressive Hunter'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='#FF6600', markersize=12, label='🟠 Calm Predator'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='#FFDD00', markersize=12, label='🟡 Anxious Forager'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='#00DDDD', markersize=12, label='🔵 Peaceful Grazer')
         ]
         
         legend = self.ax_legend.legend(
@@ -519,6 +657,127 @@ class EnhancedOrrery:
         plt.tight_layout()
         plt.show()
 
+def generate_evolution_summary(run_number):
+    """Generate a summary chart showing the complete evolution."""
+    chronicle = load_chronicle(run_number)
+    if not chronicle:
+        return
+    
+    events = process_events(chronicle)
+    analyzer = EvolutionAnalyzer()
+    
+    print("Analyzing complete evolution...")
+    
+    # Process all events to build complete history
+    entity_states = {}
+    energy_grid = np.zeros((cfg.WORLD_WIDTH, cfg.WORLD_HEIGHT))
+    
+    for tick in sorted(events.keys()):
+        # Simple metabolism simulation
+        for eid in list(entity_states.keys()):
+            state = entity_states[eid]
+            state['age'] += 1
+            state['energy'] -= 5  # Simple metabolism
+            if state['energy'] <= 0 or state['age'] >= 500:
+                del entity_states[eid]
+        
+        # Process events
+        for event in events[tick]:
+            _, eid, action, x1, y1, x2, y2, extra = event[:8]
+            eid, action = int(eid), int(action)
+            
+            if action == cfg.ACTION_SOLAR_INFUSION:
+                energy_grid[int(x1), int(y1)] += 1
+            elif action == cfg.ACTION_ENERGY_CONSUMED:
+                if eid in entity_states:
+                    entity_states[eid]['energy'] += cfg.ENERGY_PER_QUANTUM
+                if energy_grid[int(x1), int(y1)] > 0:
+                    energy_grid[int(x1), int(y1)] -= 1
+            elif action in [cfg.ACTION_SPAWN, cfg.ACTION_REPRODUCE]:
+                child_id = int(extra) if action == cfg.ACTION_REPRODUCE else eid
+                genome = np.array(event[8:])
+                species_name, color, size_mult = get_species_info(genome)
+                entity_states[child_id] = {
+                    'genome': genome,
+                    'age': 0,
+                    'energy': 100,
+                    'species': species_name
+                }
+        
+        # Record every 50 ticks
+        if tick % 50 == 0:
+            analyzer.record_tick(tick, entity_states, energy_grid)
+    
+    # Create summary chart
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+    fig.patch.set_facecolor('#0a0a0a')
+    
+    ticks = np.array(analyzer.tick_history)
+    colors = ['#FF2222', '#FF6600', '#FFDD00', '#00DDDD']
+    
+    # Species evolution
+    ax1.set_facecolor('#0a0a0a')
+    ax1.set_title(f'Evolution Summary - Run #{run_number}', color='white', fontsize=16, fontweight='bold')
+    ax1.set_xlabel('Tick', color='white')
+    ax1.set_ylabel('Population', color='white')
+    ax1.tick_params(colors='white')
+    
+    for i, (species, counts) in enumerate(analyzer.species_history.items()):
+        if any(c > 0 for c in counts):  # Only plot species that existed
+            ax1.plot(ticks, counts, color=colors[i], label=species, linewidth=2, marker='o', markersize=3)
+    
+    ax1.legend(facecolor='#1a1a1a', edgecolor='gray')
+    for text in ax1.get_legend().get_texts():
+        text.set_color('white')
+    ax1.grid(True, alpha=0.3)
+    
+    # Total population and energy
+    ax2.set_facecolor('#0a0a0a')
+    ax2.set_xlabel('Tick', color='white')
+    ax2.set_ylabel('Total Population', color='white')
+    ax2.tick_params(colors='white')
+    
+    ax2.plot(ticks, analyzer.population_history, color='#00FF00', label='Total Population', linewidth=2)
+    
+    # Secondary y-axis for energy
+    ax2_energy = ax2.twinx()
+    ax2_energy.plot(ticks, analyzer.energy_history, color='#FFAA00', label='Environmental Energy', linewidth=2, linestyle='--')
+    ax2_energy.set_ylabel('Environmental Energy', color='white')
+    ax2_energy.tick_params(colors='white')
+    
+    # Combined legend
+    lines1, labels1 = ax2.get_legend_handles_labels()
+    lines2, labels2 = ax2_energy.get_legend_handles_labels()
+    ax2.legend(lines1 + lines2, labels1 + labels2, facecolor='#1a1a1a', edgecolor='gray')
+    for text in ax2.get_legend().get_texts():
+        text.set_color('white')
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Print final statistics
+    if analyzer.population_history:
+        final_pop = analyzer.population_history[-1]
+        final_species = {species: counts[-1] if counts else 0 for species, counts in analyzer.species_history.items()}
+        
+        print(f"\n=== EVOLUTION SUMMARY - RUN #{run_number} ===")
+        print(f"Final Population: {final_pop}")
+        print("Final Species Distribution:")
+        for species, count in final_species.items():
+            if count > 0:
+                percentage = (count / final_pop) * 100 if final_pop > 0 else 0
+                print(f"  {species}: {count} ({percentage:.1f}%)")
+        
+        # Check for predator extinction
+        predator_count = final_species.get("Aggressive Hunter", 0) + final_species.get("Calm Predator", 0)
+        if predator_count == 0:
+            print("\n⚠️  PREDATOR EXTINCTION DETECTED!")
+            print("   Possible causes:")
+            print("   - High movement costs in terrain")
+            print("   - Insufficient energy yield from predation")
+            print("   - Reproduction costs too high for predators")
+
 def main(run_number):
     """Main function to launch enhanced playback."""
     print(f"Loading enhanced visualization for run {run_number}...")
@@ -529,17 +788,31 @@ def main(run_number):
         return
     
     terrain = load_terrain(run_number)
-    
-    if terrain is None:
-        print("Failed to load terrain data. Exiting.")
-        return
     events = process_events(chronicle)
     
     print(f"Loaded {len(chronicle)} events across {len(events)} ticks")
-    print("Starting enhanced Orrery visualization...")
     
-    orrery = EnhancedOrrery(run_number, events, terrain)
-    orrery.run()
+    # Ask user what they want to do
+    print("\nVisualization Options:")
+    print("1. Interactive playback (default)")
+    print("2. Evolution summary charts")
+    print("3. Both")
+    
+    try:
+        choice = input("Enter choice (1-3, or press Enter for 1): ").strip()
+        if not choice:
+            choice = "1"
+    except:
+        choice = "1"
+    
+    if choice in ["1", "3"]:
+        print("Starting interactive Orrery visualization...")
+        orrery = EnhancedOrrery(run_number, events, terrain)
+        orrery.run()
+    
+    if choice in ["2", "3"]:
+        print("Generating evolution summary...")
+        generate_evolution_summary(run_number)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Enhanced Project Primordium Visualization")
