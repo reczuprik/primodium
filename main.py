@@ -26,7 +26,7 @@ def main(num_evolutions: int):
     Runs a specified number of separate, independent evolution simulations.
     """
     print(f"--- Preparing to run {num_evolutions} evolution(s). ---")
-    num_evolutions=cfg.MAX_SIMULATION_RUNS
+    
     
 
     # --- The restored batch-run loop ---
@@ -50,6 +50,6 @@ def main(num_evolutions: int):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Primordium simulation harness.")
     # --- MODIFIED: The parameter now defines HOW MANY runs. ---
-    parser.add_argument("num_evolutions", type=int, help="The number of separate evolutions to simulate.")
+    parser.add_argument("num_evolutions", type=int, nargs='?', default=1)
     args = parser.parse_args()
     main(args.num_evolutions)
